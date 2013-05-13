@@ -1,9 +1,11 @@
 package rs.pedjaapps.Linpack;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.graphics.Color;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Log;
@@ -19,10 +21,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-import com.actionbarsherlock.app.SherlockActivity;
 
-
-public class Tester extends SherlockActivity {
+public class Tester extends Activity {
 
     TextView mflopsTextView;
     TextView nresTextView;
@@ -31,7 +31,8 @@ public class Tester extends SherlockActivity {
     ListView resultsList;
     ResultsListAdapter adapter;
     DatabaseHandler db;
-	Button start;
+	Button start_single;
+	Button start_multi;
     Bundle mInfo[];
     public final static String MFLOPS = "MFLOPS";
     public final static String RESIDN = "RESIDN";
@@ -91,8 +92,8 @@ public class Tester extends SherlockActivity {
         timeTextView = (TextView)findViewById(R.id.time);
         precisionTextView = (TextView)findViewById(R.id.precision);
         
-        start = (Button)findViewById(R.id.start);
-		start.setOnClickListener(new View.OnClickListener(){
+        start_single = (Button)findViewById(R.id.start_single);
+		start_single.setOnClickListener(new View.OnClickListener(){
 
 				public void onClick(View p1)
 				{
@@ -100,8 +101,23 @@ public class Tester extends SherlockActivity {
 					nresTextView.setText("0");
 					timeTextView.setText("0");
 					precisionTextView.setText("0");
-					start.setEnabled(false);
-					startTester();
+					start_single.setEnabled(false);
+					start_multi.setEnabled(false);
+					startTester(0);
+				}
+			});
+		start_multi = (Button)findViewById(R.id.start_multi);
+		start_multi.setOnClickListener(new View.OnClickListener(){
+
+				public void onClick(View p1)
+				{
+					mflopsTextView.setText(R.string.running_benchmark);
+					nresTextView.setText("0");
+					timeTextView.setText("0");
+					precisionTextView.setText("0");
+					start_single.setEnabled(false);
+					start_multi.setEnabled(false);
+					startTester(1);
 				}
 			});
 		resultsList = (ListView)findViewById(R.id.list);
@@ -221,18 +237,6 @@ public class Tester extends SherlockActivity {
         result.putDouble(TIME, time_total / length);
         result.putDouble(EPS, eps_total  / length);
     }
-
-    /*public static String bundleToString(Bundle bundle, long time) {
-        DecimalFormat mflopsFormat = new DecimalFormat("0.000");
-		DecimalFormat nResFormat = new DecimalFormat("0.00");
-		String result = "";
-        result += "Mflops/s :" + mflopsFormat.format(bundle.getDouble(MFLOPS, 0.0));
-        result += "\nTime     :" + (double)time/1000 +"s";
-        result += "\nNorm Res :" + nResFormat.format(bundle.getDouble(RESIDN, 0.0));
-        result += "\nPrecision:" + bundle.getDouble(EPS, 0.0);
-
-        return result;
-    }*/
 	
 	@Override
     protected void onPause() {
@@ -242,10 +246,18 @@ public class Tester extends SherlockActivity {
 		}
     }
 
-    protected void startTester() {
-        TesterThread thread = new TesterThread(sleepBeforeStart(), sleepBetweenRound());
-        thread.start();
-    }
+    protected void startTester(int code) {
+    	switch(code){
+    	case 0:
+    		TesterThread thread = new TesterThread(sleepBeforeStart(), sleepBetweenRound());
+            thread.start();
+            break;
+    	case 1:
+    	     new TesterAsyncTask(sleepBeforeStart(), sleepBetweenRound()).execute();
+    	    break;
+    	}
+        
+   }
 
     public void interruptTester() {
         mNow = 0;
@@ -293,7 +305,8 @@ public class Tester extends SherlockActivity {
 					timeTextView.setText((double)(end-start)/1000 +"s");
 					precisionTextView.setText(""+result.getDouble(EPS, 0.0));
 					populateList();
-					Tester.this.start.setEnabled(true);
+					Tester.this.start_single.setEnabled(true);
+					Tester.this.start_multi.setEnabled(true);
 				}});
 		mNow = mRound;
     }
@@ -349,5 +362,50 @@ public class Tester extends SherlockActivity {
             }
         }
     }
+    
+    private class TesterAsyncTask extends AsyncTask<String, Void, Long[]> {
+
+    	int mSleepingStart;
+        int mSleepingTime;
+        TesterAsyncTask(int sleepStart, int sleepPeriod) {
+            mSleepingStart = sleepStart;
+            mSleepingTime  = sleepPeriod;
+        }
+        private void lazyLoop() throws Exception {
+            while (!isTesterFinished()) {
+                if (mNextRound) {
+                    mNextRound = false;
+                    oneRound();
+                } else {
+                    Thread.sleep(mSleepingTime);
+                }
+            }
+        }
+        
+		@Override
+		protected Long[] doInBackground(String... args) {
+			long start = 0;
+			long end = 0 ;
+			try {
+                Thread.sleep(mSleepingStart);
+
+                start = SystemClock.uptimeMillis();
+
+                lazyLoop();
+
+                end = SystemClock.uptimeMillis();
+                //finishTester(start, end);
+            } catch (Exception e) {
+				e.printStackTrace();
+            }
+			return new Long[]{start, end};
+		}
+
+		
+		@Override
+		protected void onPostExecute(Long[] result) {
+			finishTester(result[0], result[1]);
+		}
+	}
 
 }
